@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Wallet {
+  id           String        @id @default(cuid())
+  address      String        @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[]
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  hash        String
+  fromAddress String
+  toAddress   String
+  amount      String // Store as string to handle large numbers
+  blockNumber BigInt
+  gasUsed     BigInt?
+  gasPrice    BigInt?
+  timestamp   DateTime
+  status      String // "success" or "failed"
+  chainId     Int      @default(11155111) // Network chain ID (1 for Mainnet, 11155111 for Sepolia)
+  walletId    String?
+  wallet      Wallet?  @relation(fields: [walletId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([hash, chainId])
+  @@index([fromAddress])
+  @@index([toAddress])
+  @@index([timestamp])
+  @@index([chainId])
+}
+
+model SavedAddress {
+  id        String   @id @default(cuid())
+  address   String   @unique
+  label     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

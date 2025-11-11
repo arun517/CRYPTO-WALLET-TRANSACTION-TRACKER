@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crypto-wallet-tracker-db
+    environment:
+      POSTGRES_USER: wallet_tracker
+      POSTGRES_PASSWORD: wallet_tracker_password
+      POSTGRES_DB: wallet_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wallet_tracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: crypto-wallet-tracker-backend
+    environment:
+      DATABASE_URL: postgresql://wallet_tracker:wallet_tracker_password@postgres:5432/wallet_tracker
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-https://eth-sepolia.g.alchemy.com/v2/demo}
+      ETHERSCAN_API_KEY: ${ETHERSCAN_API_KEY:-}
+      PORT: 3001
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./apps/backend/prisma:/app/apps/backend/prisma
+    command: sh -c "cd /app/apps/backend && pnpm prisma migrate deploy && node dist/main.js"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001/api
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://eth-sepolia.g.alchemy.com/v2/demo}
+        NEXT_PUBLIC_CHAIN_ID: ${NEXT_PUBLIC_CHAIN_ID:-11155111}
+    container_name: crypto-wallet-tracker-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api
+      NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://eth-sepolia.g.alchemy.com/v2/demo}
+      NEXT_PUBLIC_CHAIN_ID: ${NEXT_PUBLIC_CHAIN_ID:-11155111}
+
+volumes:
+  postgres_data:
+
