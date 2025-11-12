@@ -280,8 +280,12 @@ From the root directory:
 
 ### Backend Scripts
 
-From `apps/backend`:
+**From root directory:**
+- `pnpm --filter backend prisma:generate` - Generate Prisma client
+- `pnpm --filter backend prisma:migrate` - Run database migrations
+- `pnpm --filter backend prisma:studio` - Open Prisma Studio
 
+**Or from `apps/backend` directory:**
 - `pnpm prisma:generate` - Generate Prisma client
 - `pnpm prisma:migrate` - Run database migrations
 - `pnpm prisma:studio` - Open Prisma Studio
