@@ -25,12 +25,18 @@ export class WalletService {
   }
 
   // ERC-20 Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
-  private readonly TRANSFER_EVENT_SIGNATURE = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+  private readonly TRANSFER_EVENT_SIGNATURE =
+    '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
   private async detectTokenTransfer(
     receipt: ethers.TransactionReceipt | null,
     provider: ethers.JsonRpcProvider,
-  ): Promise<{ contractAddress: string; from: string; to: string; amount: bigint } | null> {
+  ): Promise<{
+    contractAddress: string;
+    from: string;
+    to: string;
+    amount: bigint;
+  } | null> {
     if (!receipt || !receipt.logs || receipt.logs.length === 0) {
       return null;
     }
@@ -38,17 +44,23 @@ export class WalletService {
     // Find Transfer event logs
     for (const log of receipt.logs) {
       try {
-        if (log.topics && log.topics.length === 3 && log.topics[0] === this.TRANSFER_EVENT_SIGNATURE) {
+        if (
+          log.topics &&
+          log.topics.length === 3 &&
+          log.topics[0] === this.TRANSFER_EVENT_SIGNATURE
+        ) {
           // This is an ERC-20 Transfer event
           const fromTopic = String(log.topics[1]);
           const toTopic = String(log.topics[2]);
-          
-          const fromHex = fromTopic.startsWith('0x') ? fromTopic.slice(2) : fromTopic;
+
+          const fromHex = fromTopic.startsWith('0x')
+            ? fromTopic.slice(2)
+            : fromTopic;
           const toHex = toTopic.startsWith('0x') ? toTopic.slice(2) : toTopic;
-          
+
           const from = ethers.getAddress('0x' + fromHex.slice(-40));
           const to = ethers.getAddress('0x' + toHex.slice(-40));
-          
+
           const dataHex = String(log.data || '0x0');
           const amount = BigInt(dataHex);
 
@@ -76,7 +88,11 @@ export class WalletService {
       const symbolAbi = ['function symbol() view returns (string)'];
       const decimalsAbi = ['function decimals() view returns (uint8)'];
 
-      const contract = new ethers.Contract(contractAddress, [...nameAbi, ...symbolAbi, ...decimalsAbi], provider);
+      const contract = new ethers.Contract(
+        contractAddress,
+        [...nameAbi, ...symbolAbi, ...decimalsAbi],
+        provider,
+      );
 
       const [name, symbol, decimals] = await Promise.allSettled([
         contract.name(),
@@ -100,18 +116,29 @@ export class WalletService {
   ): Promise<TransactionResponse> {
     try {
       const provider = this.getProvider(chainId);
-      const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null);
-      
+      const receipt = await provider
+        .getTransactionReceipt(tx.hash)
+        .catch(() => null);
+
       if (!receipt) {
         return tx;
       }
 
-      const tokenTransferInfo = await this.detectTokenTransfer(receipt, provider);
+      const tokenTransferInfo = await this.detectTokenTransfer(
+        receipt,
+        provider,
+      );
       if (tokenTransferInfo) {
         try {
-          const tokenMetadata = await this.getTokenMetadata(tokenTransferInfo.contractAddress, provider);
+          const tokenMetadata = await this.getTokenMetadata(
+            tokenTransferInfo.contractAddress,
+            provider,
+          );
           const decimals = tokenMetadata.decimals ?? 18;
-          const amountFormatted = ethers.formatUnits(tokenTransferInfo.amount, decimals);
+          const amountFormatted = ethers.formatUnits(
+            tokenTransferInfo.amount,
+            decimals,
+          );
 
           tx.tokenTransfer = {
             contractAddress: tokenTransferInfo.contractAddress,
@@ -124,7 +151,10 @@ export class WalletService {
         } catch (error) {
           // If token metadata fetch fails, still include basic token transfer info
           const decimals = 18;
-          const amountFormatted = ethers.formatUnits(tokenTransferInfo.amount, decimals);
+          const amountFormatted = ethers.formatUnits(
+            tokenTransferInfo.amount,
+            decimals,
+          );
           tx.tokenTransfer = {
             contractAddress: tokenTransferInfo.contractAddress,
             tokenName: undefined,
@@ -140,6 +170,31 @@ export class WalletService {
     } catch (error) {
       // Return original transaction if token detection fails
       return tx;
+    }
+  }
+
+  private async cacheTokenInfo(
+    tx: TransactionResponse,
+    chainId: number,
+  ): Promise<void> {
+    if (!tx.tokenTransfer) {
+      return;
+    }
+
+    try {
+      await this.prisma.transaction.updateMany({
+        where: { hash: tx.hash, chainId } as any,
+        data: {
+          tokenContractAddress: tx.tokenTransfer.contractAddress,
+          tokenName: tx.tokenTransfer.tokenName || null,
+          tokenSymbol: tx.tokenTransfer.tokenSymbol || null,
+          tokenDecimals: tx.tokenTransfer.tokenDecimals || null,
+          tokenAmount: tx.tokenTransfer.amount,
+          tokenAmountFormatted: tx.tokenTransfer.amountFormatted,
+        } as any,
+      });
+    } catch {
+      // Silently fail - caching is not critical
     }
   }
 
@@ -203,17 +258,34 @@ export class WalletService {
 
       if (wallet && wallet.transactions && wallet.transactions.length > 0) {
         // Map transactions to TransactionResponse format
-        allTransactions = wallet.transactions.map((tx) => ({
-          hash: tx.hash,
-          from: tx.fromAddress,
-          to: tx.toAddress,
-          value: tx.amount,
-          blockNumber: Number(tx.blockNumber),
-          gasUsed: tx.gasUsed ? tx.gasUsed.toString() : undefined,
-          gasPrice: tx.gasPrice ? tx.gasPrice.toString() : undefined,
-          timestamp: Math.floor(tx.timestamp.getTime() / 1000),
-          status: tx.status as 'success' | 'failed',
-        }));
+        allTransactions = wallet.transactions.map((tx) => {
+          const transactionResponse: TransactionResponse = {
+            hash: tx.hash,
+            from: tx.fromAddress,
+            to: tx.toAddress,
+            value: tx.amount,
+            blockNumber: Number(tx.blockNumber),
+            gasUsed: tx.gasUsed ? tx.gasUsed.toString() : undefined,
+            gasPrice: tx.gasPrice ? tx.gasPrice.toString() : undefined,
+            timestamp: Math.floor(tx.timestamp.getTime() / 1000),
+            status: tx.status as 'success' | 'failed',
+          };
+
+          // Include token transfer info from cache if available
+          if ((tx as any).tokenContractAddress) {
+            transactionResponse.tokenTransfer = {
+              contractAddress: (tx as any).tokenContractAddress,
+              tokenName: (tx as any).tokenName || undefined,
+              tokenSymbol: (tx as any).tokenSymbol || undefined,
+              tokenDecimals: (tx as any).tokenDecimals || undefined,
+              amount: (tx as any).tokenAmount || '0',
+              amountFormatted: (tx as any).tokenAmountFormatted || '0',
+            };
+          }
+          // Note: If no token info, it will be enriched later in the flow
+
+          return transactionResponse;
+        });
       } else {
         allTransactions = [];
         this.syncTransactionsInBackground(normalizedAddress, chainId).catch(
@@ -237,13 +309,28 @@ export class WalletService {
       const skip = (page - 1) * limit;
       const transactions = allTransactions.slice(skip, skip + limit);
 
-      // Enrich only the transactions that will be returned with token information
+      // Enrich only transactions that don't have token info cached
+      const transactionsToEnrich = transactions.filter(
+        (tx) => !tx.tokenTransfer,
+      );
       const enrichedTransactions = await Promise.allSettled(
-        transactions.map((tx) => this.enrichTransactionWithTokenInfo(tx, chainId))
+        transactionsToEnrich.map((tx) =>
+          this.enrichTransactionWithTokenInfo(tx, chainId),
+        ),
       );
 
-      const finalTransactions = enrichedTransactions.map((result, index) =>
-        result.status === 'fulfilled' ? result.value : transactions[index]
+      // Update transactions with enriched data and cache token info
+      const enrichedMap = new Map<string, TransactionResponse>();
+      enrichedTransactions.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          enrichedMap.set(transactionsToEnrich[index].hash, result.value);
+          // Cache the enriched transaction
+          this.cacheTokenInfo(result.value, chainId).catch(() => {});
+        }
+      });
+
+      const finalTransactions = transactions.map((tx) =>
+        enrichedMap.get(tx.hash) || tx,
       );
 
       return {
@@ -293,33 +380,60 @@ export class WalletService {
 
       for (const tx of transactions) {
         try {
+          // Detect and enrich token info before caching
+          const provider = this.getProvider(chainId);
+          const receipt = await provider
+            .getTransactionReceipt(tx.hash)
+            .catch(() => null);
+
+          let enrichedTx = tx;
+          if (receipt) {
+            try {
+              enrichedTx = await this.enrichTransactionWithTokenInfo(tx, chainId);
+            } catch {
+              // Continue with original tx if enrichment fails
+            }
+          }
+
+          const updateData: any = {
+            fromAddress: enrichedTx.from.toLowerCase(),
+            toAddress: enrichedTx.to.toLowerCase(),
+            amount: enrichedTx.value,
+            blockNumber: BigInt(enrichedTx.blockNumber),
+            gasUsed: enrichedTx.gasUsed ? BigInt(enrichedTx.gasUsed) : null,
+            gasPrice: enrichedTx.gasPrice ? BigInt(enrichedTx.gasPrice) : null,
+            timestamp: new Date(enrichedTx.timestamp * 1000),
+            status: enrichedTx.status,
+            chainId,
+            walletId: wallet.id,
+          };
+
+          const createData: any = {
+            hash: enrichedTx.hash,
+            ...updateData,
+          };
+
+          // Include token transfer info if available
+          if (enrichedTx.tokenTransfer) {
+            updateData.tokenContractAddress = enrichedTx.tokenTransfer.contractAddress;
+            updateData.tokenName = enrichedTx.tokenTransfer.tokenName || null;
+            updateData.tokenSymbol = enrichedTx.tokenTransfer.tokenSymbol || null;
+            updateData.tokenDecimals = enrichedTx.tokenTransfer.tokenDecimals || null;
+            updateData.tokenAmount = enrichedTx.tokenTransfer.amount;
+            updateData.tokenAmountFormatted = enrichedTx.tokenTransfer.amountFormatted;
+
+            createData.tokenContractAddress = enrichedTx.tokenTransfer.contractAddress;
+            createData.tokenName = enrichedTx.tokenTransfer.tokenName || null;
+            createData.tokenSymbol = enrichedTx.tokenTransfer.tokenSymbol || null;
+            createData.tokenDecimals = enrichedTx.tokenTransfer.tokenDecimals || null;
+            createData.tokenAmount = enrichedTx.tokenTransfer.amount;
+            createData.tokenAmountFormatted = enrichedTx.tokenTransfer.amountFormatted;
+          }
+
           await this.prisma.transaction.upsert({
-            where: { hash_chainId: { hash: tx.hash, chainId } } as any,
-            update: {
-              fromAddress: tx.from.toLowerCase(),
-              toAddress: tx.to.toLowerCase(),
-              amount: tx.value,
-              blockNumber: BigInt(tx.blockNumber),
-              gasUsed: tx.gasUsed ? BigInt(tx.gasUsed) : null,
-              gasPrice: tx.gasPrice ? BigInt(tx.gasPrice) : null,
-              timestamp: new Date(tx.timestamp * 1000),
-              status: tx.status,
-              chainId,
-              walletId: wallet.id,
-            } as any,
-            create: {
-              hash: tx.hash,
-              fromAddress: tx.from.toLowerCase(),
-              toAddress: tx.to.toLowerCase(),
-              amount: tx.value,
-              blockNumber: BigInt(tx.blockNumber),
-              gasUsed: tx.gasUsed ? BigInt(tx.gasUsed) : null,
-              gasPrice: tx.gasPrice ? BigInt(tx.gasPrice) : null,
-              timestamp: new Date(tx.timestamp * 1000),
-              status: tx.status,
-              chainId,
-              walletId: wallet.id,
-            } as any,
+            where: { hash_chainId: { hash: enrichedTx.hash, chainId } } as any,
+            update: updateData,
+            create: createData,
           });
         } catch {
           // Skip failed transaction cache
@@ -347,13 +461,6 @@ export class WalletService {
       const data = await response.json();
 
       if (data.status === '0' || data.status === 0) {
-        if (
-          data.message &&
-          (data.message.includes('No transactions found') ||
-            data.message === 'No transactions found')
-        ) {
-          return [];
-        }
         return [];
       }
 

@@ -5,7 +5,6 @@ import { ethers } from 'ethers';
 import { WalletConnection } from '@/components/WalletConnection';
 import { WalletInfo } from '@/components/WalletInfo';
 import { TransactionList } from '@/components/TransactionList';
-import { API_CONFIG } from '@crypto-wallet-tracker/config';
 
 export default function Home() {
   const [accounts, setAccounts] = useState<string[]>([]);

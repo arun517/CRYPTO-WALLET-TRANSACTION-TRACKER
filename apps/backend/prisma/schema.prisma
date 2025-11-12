@@ -19,33 +19,33 @@ model Wallet {
 }
 
 model Transaction {
-  id          String   @id @default(cuid())
-  hash        String
-  fromAddress String
-  toAddress   String
-  amount      String // Store as string to handle large numbers
-  blockNumber BigInt
-  gasUsed     BigInt?
-  gasPrice    BigInt?
-  timestamp   DateTime
-  status      String // "success" or "failed"
-  chainId     Int      @default(11155111) // Network chain ID (1 for Mainnet, 11155111 for Sepolia)
-  walletId    String?
-  wallet      Wallet?  @relation(fields: [walletId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  hash               String
+  fromAddress        String
+  toAddress          String
+  amount             String // Store as string to handle large numbers
+  blockNumber        BigInt
+  gasUsed            BigInt?
+  gasPrice           BigInt?
+  timestamp          DateTime
+  status             String // "success" or "failed"
+  chainId            Int      @default(11155111) // Network chain ID (1 for Mainnet, 11155111 for Sepolia)
+  walletId           String?
+  wallet             Wallet?  @relation(fields: [walletId], references: [id])
+  // Token transfer fields (for ERC-20 token transfers)
+  tokenContractAddress String? // Token contract address
+  tokenName          String? // Token name (e.g., "Tether USD")
+  tokenSymbol        String? // Token symbol (e.g., "USDT")
+  tokenDecimals      Int? // Token decimals
+  tokenAmount        String? // Raw token amount (as string)
+  tokenAmountFormatted String? // Formatted token amount (e.g., "100.000000")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@unique([hash, chainId])
   @@index([fromAddress])
   @@index([toAddress])
   @@index([timestamp])
   @@index([chainId])
-}
-
-model SavedAddress {
-  id        String   @id @default(cuid())
-  address   String   @unique
-  label     String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@index([tokenContractAddress])
 }

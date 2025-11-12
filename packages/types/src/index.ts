@@ -59,25 +59,9 @@ export interface TransactionListResponse {
 
 export type TransactionType = 'sent' | 'received' | 'all';
 
-export interface TokenBalance {
-  contractAddress: string;
-  name: string;
-  symbol: string;
-  decimals: number;
-  balance: string;
-  balanceFormatted: string;
-}
-
 export interface NetworkInfo {
   chainId: number;
   name: string;
   isSupported: boolean;
-}
-
-export interface SavedAddress {
-  id: string;
-  address: string;
-  label: string;
-  createdAt: Date;
 }
 
