@@ -43,7 +43,8 @@ export function TransactionList({ walletAddress, chainId = 11155111 }: Transacti
       const response = await fetch(url.toString());
       
       if (!response.ok) {
-        throw new Error('Failed to fetch transactions');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to fetch transactions (${response.status})`);
       }
 
       const data = await response.json();
@@ -146,7 +147,7 @@ export function TransactionList({ walletAddress, chainId = 11155111 }: Transacti
   }, []);
 
   const handleTransactionClick = (hash: string) => {
-    router.push(`/transaction/${hash}`);
+    router.push(`/transaction/${hash}?chainId=${chainId}`);
   };
 
   return (
@@ -260,9 +261,18 @@ export function TransactionList({ walletAddress, chainId = 11155111 }: Transacti
                     </div>
                     <div>
                       <span className="text-gray-600 dark:text-gray-400">Amount: </span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
-                        {formatValue(tx.value)} ETH
-                      </span>
+                      {tx.tokenTransfer ? (
+                        <span className="font-semibold text-gray-900 dark:text-white">
+                          {parseFloat(tx.tokenTransfer.amountFormatted).toLocaleString(undefined, {
+                            maximumFractionDigits: 4,
+                          })}{' '}
+                          {tx.tokenTransfer.tokenSymbol || 'TOKEN'}
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-gray-900 dark:text-white">
+                          {formatValue(tx.value)} ETH
+                        </span>
+                      )}
                     </div>
                     <div>
                       <span className="text-gray-600 dark:text-gray-400">Time: </span>

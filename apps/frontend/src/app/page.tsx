@@ -56,7 +56,7 @@ export default function Home() {
     try {
       // Fetch network first
       if (window.ethereum) {
-        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
         const chainIdNum = parseInt(chainId, 16);
         const networkName = chainIdNum === 11155111 ? 'Sepolia' : chainIdNum === 1 ? 'Mainnet' : `Chain ${chainIdNum}`;
         setNetwork({ chainId: chainIdNum, name: networkName });
@@ -105,7 +105,7 @@ export default function Home() {
           ? parseInt(currentChainId, 16) 
           : currentChainId;
         const networkName = chainIdNum === 11155111 ? 'Sepolia' : chainIdNum === 1 ? 'Mainnet' : `Chain ${chainIdNum}`;
-        setNetwork({ chainId: chainIdNum, name: networkName });
+        setNetwork({ chainId: chainIdNum as number, name: networkName });
         if (selectedAccount) {
           await fetchBalanceAndNetwork(selectedAccount);
         }

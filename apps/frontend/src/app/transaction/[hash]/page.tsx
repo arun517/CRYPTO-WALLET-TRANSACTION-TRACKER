@@ -27,13 +27,21 @@ export default function TransactionDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_CONFIG.baseUrl}/transaction/${hash}`);
+      // Get chainId from URL search params or default to Sepolia
+      const searchParams = new URLSearchParams(window.location.search);
+      const chainId = searchParams.get('chainId') || '11155111';
+      
+      const url = new URL(`${API_CONFIG.baseUrl}/transaction/${hash}`);
+      url.searchParams.append('chainId', chainId);
+      
+      const response = await fetch(url.toString());
       
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('Transaction not found');
         }
-        throw new Error('Failed to fetch transaction');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to fetch transaction');
       }
 
       const data = await response.json();
@@ -192,14 +200,40 @@ export default function TransactionDetailPage() {
                 </div>
               </div>
 
-              {/* Value */}
+              {/* Value / Token Transfer */}
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <label className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2 block">
-                  Value
+                  {transaction.tokenTransfer ? 'Token Transfer' : 'Value'}
                 </label>
-                <p className="text-2xl font-bold text-primary-600 dark:text-primary-400">
-                  {formatValue(transaction.value)} ETH
-                </p>
+                {transaction.tokenTransfer ? (
+                  <div className="space-y-2">
+                    <p className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+                      {parseFloat(transaction.tokenTransfer.amountFormatted).toLocaleString(undefined, {
+                        maximumFractionDigits: 6,
+                      })}{' '}
+                      {transaction.tokenTransfer.tokenSymbol || 'TOKEN'}
+                    </p>
+                    {transaction.tokenTransfer.tokenName && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {transaction.tokenTransfer.tokenName}
+                      </p>
+                    )}
+                    <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                      <p className="text-xs text-gray-500 dark:text-gray-500">
+                        Contract: {formatAddress(transaction.tokenTransfer.contractAddress)}
+                      </p>
+                      {transaction.value !== '0.0' && (
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                          Native ETH: {formatValue(transaction.value)} ETH
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+                    {formatValue(transaction.value)} ETH
+                  </p>
+                )}
               </div>
 
               {/* Block Number */}

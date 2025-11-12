@@ -24,6 +24,125 @@ export class WalletService {
     return new ethers.JsonRpcProvider(rpcUrl);
   }
 
+  // ERC-20 Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
+  private readonly TRANSFER_EVENT_SIGNATURE = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+  private async detectTokenTransfer(
+    receipt: ethers.TransactionReceipt | null,
+    provider: ethers.JsonRpcProvider,
+  ): Promise<{ contractAddress: string; from: string; to: string; amount: bigint } | null> {
+    if (!receipt || !receipt.logs || receipt.logs.length === 0) {
+      return null;
+    }
+
+    // Find Transfer event logs
+    for (const log of receipt.logs) {
+      try {
+        if (log.topics && log.topics.length === 3 && log.topics[0] === this.TRANSFER_EVENT_SIGNATURE) {
+          // This is an ERC-20 Transfer event
+          const fromTopic = String(log.topics[1]);
+          const toTopic = String(log.topics[2]);
+          
+          const fromHex = fromTopic.startsWith('0x') ? fromTopic.slice(2) : fromTopic;
+          const toHex = toTopic.startsWith('0x') ? toTopic.slice(2) : toTopic;
+          
+          const from = ethers.getAddress('0x' + fromHex.slice(-40));
+          const to = ethers.getAddress('0x' + toHex.slice(-40));
+          
+          const dataHex = String(log.data || '0x0');
+          const amount = BigInt(dataHex);
+
+          return {
+            contractAddress: log.address,
+            from,
+            to,
+            amount,
+          };
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  private async getTokenMetadata(
+    contractAddress: string,
+    provider: ethers.JsonRpcProvider,
+  ): Promise<{ name?: string; symbol?: string; decimals?: number }> {
+    try {
+      const nameAbi = ['function name() view returns (string)'];
+      const symbolAbi = ['function symbol() view returns (string)'];
+      const decimalsAbi = ['function decimals() view returns (uint8)'];
+
+      const contract = new ethers.Contract(contractAddress, [...nameAbi, ...symbolAbi, ...decimalsAbi], provider);
+
+      const [name, symbol, decimals] = await Promise.allSettled([
+        contract.name(),
+        contract.symbol(),
+        contract.decimals(),
+      ]);
+
+      return {
+        name: name.status === 'fulfilled' ? name.value : undefined,
+        symbol: symbol.status === 'fulfilled' ? symbol.value : undefined,
+        decimals: decimals.status === 'fulfilled' ? decimals.value : undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  private async enrichTransactionWithTokenInfo(
+    tx: TransactionResponse,
+    chainId: number,
+  ): Promise<TransactionResponse> {
+    try {
+      const provider = this.getProvider(chainId);
+      const receipt = await provider.getTransactionReceipt(tx.hash).catch(() => null);
+      
+      if (!receipt) {
+        return tx;
+      }
+
+      const tokenTransferInfo = await this.detectTokenTransfer(receipt, provider);
+      if (tokenTransferInfo) {
+        try {
+          const tokenMetadata = await this.getTokenMetadata(tokenTransferInfo.contractAddress, provider);
+          const decimals = tokenMetadata.decimals ?? 18;
+          const amountFormatted = ethers.formatUnits(tokenTransferInfo.amount, decimals);
+
+          tx.tokenTransfer = {
+            contractAddress: tokenTransferInfo.contractAddress,
+            tokenName: tokenMetadata.name,
+            tokenSymbol: tokenMetadata.symbol,
+            tokenDecimals: decimals,
+            amount: tokenTransferInfo.amount.toString(),
+            amountFormatted,
+          };
+        } catch (error) {
+          // If token metadata fetch fails, still include basic token transfer info
+          const decimals = 18;
+          const amountFormatted = ethers.formatUnits(tokenTransferInfo.amount, decimals);
+          tx.tokenTransfer = {
+            contractAddress: tokenTransferInfo.contractAddress,
+            tokenName: undefined,
+            tokenSymbol: undefined,
+            tokenDecimals: decimals,
+            amount: tokenTransferInfo.amount.toString(),
+            amountFormatted,
+          };
+        }
+      }
+
+      return tx;
+    } catch (error) {
+      // Return original transaction if token detection fails
+      return tx;
+    }
+  }
+
   async getBalance(
     address: string,
     chainId: number = 11155111,
@@ -83,6 +202,7 @@ export class WalletService {
       let allTransactions: TransactionResponse[] = [];
 
       if (wallet && wallet.transactions && wallet.transactions.length > 0) {
+        // Map transactions to TransactionResponse format
         allTransactions = wallet.transactions.map((tx) => ({
           hash: tx.hash,
           from: tx.fromAddress,
@@ -117,8 +237,17 @@ export class WalletService {
       const skip = (page - 1) * limit;
       const transactions = allTransactions.slice(skip, skip + limit);
 
+      // Enrich only the transactions that will be returned with token information
+      const enrichedTransactions = await Promise.allSettled(
+        transactions.map((tx) => this.enrichTransactionWithTokenInfo(tx, chainId))
+      );
+
+      const finalTransactions = enrichedTransactions.map((result, index) =>
+        result.status === 'fulfilled' ? result.value : transactions[index]
+      );
+
       return {
-        transactions,
+        transactions: finalTransactions,
         total,
         page,
         limit,
